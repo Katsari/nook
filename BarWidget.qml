@@ -538,11 +538,13 @@ BarWidget {
     // Only the card takes input, or the stretch over the bar would swallow its
     // clicks. Spelled out rather than `Region { item: cardArea }`: the item form
     // snapshots geometry, and the card moves after the window exists.
+    // Except while dragging: motion stops at the input region's edge, hiding the
+    // move onto the bar that means eject.
     mask: Region {
-      x: Math.round(cardArea.x)
-      y: Math.round(cardArea.y)
-      width: Math.ceil(cardArea.width)
-      height: Math.ceil(cardArea.height)
+      x: root.draggingChild ? 0 : Math.round(cardArea.x)
+      y: root.draggingChild ? 0 : Math.round(cardArea.y)
+      width: root.draggingChild ? strip.width : Math.ceil(cardArea.width)
+      height: root.draggingChild ? strip.height : Math.ceil(cardArea.height)
     }
 
     Item {
