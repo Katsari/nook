@@ -4,16 +4,13 @@ A bar drawer for Omarchy, for when too many plugins have cluttered your bar.
 Collapse the ones you rarely touch into a tray that slides out below the bar,
 leaving one chevron behind. Drag widgets in and out.
 
-The tray is a layer surface anchored to the bar's own edge, so a widget inside
-it opens its panel under its own icon, the way it would on the bar.
+![Nook open, with eight widgets in the tray](preview.png)
 
 ## Install
 
 ```sh
 omarchy plugin add https://github.com/Katsari/nook.git --enable
 ```
-
-The installer asks which bar section to put it in, and starts on `right`.
 
 ## Usage
 
