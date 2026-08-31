@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.katsari.nook",
+  "name": "Nook",
+  "version": "1.0.0",
+  "author": "Katsari",
+  "description": "A drawer for a cluttered bar. Collapses the widgets you rarely touch into a tray that slides out below the bar, leaving one chevron. Drag widgets in and out.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Nook",
+    "description": "A drawer for a cluttered bar. Collapses the widgets you rarely touch into a tray that slides out below the bar, leaving one chevron. Drag widgets in and out.",
+    "category": "Layout",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "items": [],
+      "trigger": "hover",
+      "duration": 180
+    },
+    "schema": [
+      {
+        "key": "trigger",
+        "type": "enum",
+        "label": "Open on",
+        "options": [
+          "hover",
+          "click"
+        ],
+        "defaultValue": "hover"
+      },
+      {
+        "key": "duration",
+        "type": "integer",
+        "label": "Reveal duration (ms)",
+        "min": 0,
+        "max": 1000,
+        "defaultValue": 180
+      }
+    ]
+  },
+  "license": "MIT"
+}
