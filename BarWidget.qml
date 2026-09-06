@@ -4,6 +4,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
+import "LayoutModel.js" as Layout
 
 // Hosts other bar widgets behind a chevron, in a strip that opens off the bar.
 //
@@ -22,25 +23,56 @@ BarWidget {
   // assigns it after construction, and a binding that reaches it through a helper
   // call never re-evaluates when that lands.
   readonly property var itemsSetting: settings ? settings.items : null
-  readonly property var entries: normalizeEntries(itemsSetting)
+  readonly property var entries: Layout.normalizeEntries(itemsSetting, moduleName)
   readonly property string trigger: settings && settings.trigger ? String(settings.trigger) : "hover"
   readonly property int animationDuration: settings && settings.duration !== undefined
     ? Math.max(0, Number(settings.duration)) : 180
 
-  // A `var` property from the host arrives as a QVariant, so a JSON array in it
-  // fails Array.isArray. Index by length instead.
-  function normalizeEntries(raw) {
-    var out = []
-    if (!raw || typeof raw !== "object" || raw.length === undefined) return out
-    for (var i = 0; i < raw.length; i++) {
-      var entry = Util.normalizeLayoutEntry(raw[i])
-      if (!entry || !entry.id || entry.id === root.moduleName) continue
-      out.push(entry)
+  readonly property var widgetRegistry: bar && bar.barWidgetRegistry ? bar.barWidgetRegistry.widgets : ({})
+  readonly property var pluginRegistry: bar && bar.shell ? bar.shell.pluginRegistry : null
+
+  readonly property var missingIds: {
+    var registry = root.pluginRegistry
+    var plugins = []
+    for (var i = 0; i < root.entries.length; i++) {
+      if (!root.customTypeOf(root.entries[i])) plugins.push(root.entries[i])
     }
-    return out
+    return Layout.missingIds(plugins, registry ? registry.installedPlugins : null,
+      root.widgetRegistry, root.moduleName, registry ? registry.scanning : false)
   }
 
-  readonly property var widgetRegistry: bar && bar.barWidgetRegistry ? bar.barWidgetRegistry.widgets : ({})
+  readonly property var shellConfig: bar && bar.shell ? bar.shell.shellConfig : null
+
+  // The bar owns the rules for what counts as a custom module, so ask it.
+  function customTypeOf(entry) {
+    if (!bar || typeof bar.customModuleType !== "function") return ""
+    return String(bar.customModuleType(entry) || "")
+  }
+
+  function customSourceOf(entry) {
+    if (!bar || typeof bar.customModuleSource !== "function") return ""
+    return String(bar.customModuleSource(entry) || "")
+  }
+
+  // A plugin that also ships a service reads plugins[] itself.
+  function widgetOnly(id) {
+    var installed = root.pluginRegistry ? root.pluginRegistry.installedPlugins : null
+    var manifest = installed ? installed[id] : null
+    var kinds = manifest ? manifest.kinds : null
+    if (!kinds || kinds.length !== 1) return false
+    return String(kinds[0]) === "bar-widget"
+  }
+
+  readonly property var strandedIds: {
+    var config = root.shellConfig
+    var plugins = null
+    try { plugins = JSON.parse(JSON.stringify(config ? config.plugins : null)) } catch (e) { return [] }
+    var hosted = []
+    for (var i = 0; i < root.entries.length; i++) {
+      if (root.widgetOnly(root.entries[i].id)) hosted.push(root.entries[i].id)
+    }
+    return Layout.strandedIds(plugins, hosted)
+  }
 
   readonly property var ownSlot: {
     var slots = bar && bar.moduleSlots ? bar.moduleSlots : []
@@ -337,19 +369,19 @@ BarWidget {
     var outside = draggingOutside
     var entry = from >= 0 && from < entries.length ? entries[from] : null
 
-    draggingIndex = -1
-    caretIndex = -1
-    draggingOutside = false
+    cancelChildDrag()
     if (!entry) return
 
     if (outside) eject(entry.id)
     else if (caret >= 0) reorder(from, caret)
   }
 
-
-  function entryIdOf(entry) {
-    return String(Util.isPlainObject(entry) ? entry.id : entry || "")
+  function cancelChildDrag() {
+    draggingIndex = -1
+    caretIndex = -1
+    draggingOutside = false
   }
+
 
   function mutate(change) {
     var host = bar && bar.shell ? bar.shell : null
@@ -360,105 +392,68 @@ BarWidget {
     })
   }
 
-  // Two drawers share this id and the first match wins, hence allowMultiple false.
-  function findDrawerEntry(layout) {
-    var sections = ["left", "center", "right"]
-    for (var s = 0; s < sections.length; s++) {
-      var list = layout[sections[s]]
-      if (!Array.isArray(list)) continue
-      for (var i = 0; i < list.length; i++) {
-        if (entryIdOf(list[i]) !== moduleName) continue
-        // A layout entry may be a bare id string, and `items` cannot be written
-        // onto one. Promote it in place before anyone tries.
-        if (typeof list[i] === "string") list[i] = { id: list[i] }
-        return { entry: list[i], section: sections[s], index: i }
-      }
-    }
-    return null
-  }
-
-  function takeFromLayout(layout, id) {
-    var sections = ["left", "center", "right"]
-    for (var s = 0; s < sections.length; s++) {
-      var list = layout[sections[s]]
-      if (!Array.isArray(list)) continue
-      for (var i = 0; i < list.length; i++) {
-        if (entryIdOf(list[i]) !== id) continue
-        var moved = list[i]
-        list.splice(i, 1)
-        return typeof moved === "string" ? { id: moved } : moved
-      }
-    }
-    return null
-  }
-
-  function takeFromItems(drawerEntry, id) {
-    if (!Array.isArray(drawerEntry.items)) return null
-    for (var i = 0; i < drawerEntry.items.length; i++) {
-      if (entryIdOf(drawerEntry.items[i]) !== id) continue
-      var moved = drawerEntry.items[i]
-      drawerEntry.items.splice(i, 1)
-      return typeof moved === "string" ? { id: moved } : moved
-    }
-    return null
-  }
-
-  // A bar widget shell.json does not reference is disabled and never built.
-  function markEnabled(config, id) {
-    if (!Array.isArray(config.plugins)) config.plugins = []
-    for (var i = 0; i < config.plugins.length; i++) {
-      if (config.plugins[i] && String(config.plugins[i].id) === id) return
-    }
-    config.plugins.push({ id: id })
-  }
-
-  // Only drops a bare marker; an entry carrying settings or other kinds stays.
-  function unmarkEnabled(config, id) {
-    if (!Array.isArray(config.plugins)) return
-    config.plugins = config.plugins.filter(function(entry) {
-      if (!entry || String(entry.id) !== id) return true
-      return Object.keys(entry).length > 1
-    })
-  }
 
   // -1 appends.
   function absorb(id, index) {
-    mutate(function(config) {
-      // Find the drawer before taking anything out: mutateShellConfig persists the
-      // mutation even on an early return, so removing first would lose the widget.
-      var found = root.findDrawerEntry(config.bar.layout)
-      if (!found) return
-      var moved = root.takeFromLayout(config.bar.layout, id)
-      if (!moved) return
-      if (!Array.isArray(found.entry.items)) found.entry.items = []
-      var at = index >= 0 && index <= found.entry.items.length ? index : found.entry.items.length
-      found.entry.items.splice(at, 0, moved)
-      root.markEnabled(config, id)
-    })
+    var plugin = !root.customTypeOf(root.entryOnBar(id))
+    mutate(function(config) { Layout.absorb(config, root.moduleName, id, index, plugin) })
+  }
+
+  function entryOnBar(id) {
+    var layout = bar && bar.layoutConfig ? bar.layoutConfig : null
+    if (!layout) return null
+    var sections = ["left", "center", "right"]
+    for (var s = 0; s < sections.length; s++) {
+      var list = layout[sections[s]]
+      if (!list) continue
+      for (var i = 0; i < list.length; i++) {
+        if (Layout.entryIdOf(list[i]) === id) return list[i]
+      }
+    }
+    return null
   }
 
   function eject(id) {
-    mutate(function(config) {
-      var found = root.findDrawerEntry(config.bar.layout)
-      if (!found) return
-      var moved = root.takeFromItems(found.entry, id)
-      if (!moved) return
-      config.bar.layout[found.section].splice(found.index + 1, 0, moved)
-      root.unmarkEnabled(config, id)
-    })
+    mutate(function(config) { Layout.eject(config, root.moduleName, id, root.widgetOnly(id)) })
   }
 
-  // `to` is an insertion index measured before the removal, so a move to a later
-  // position shifts down by one.
   function reorder(from, to) {
-    if (from < 0 || to < 0 || from === to || from === to - 1) return
-    mutate(function(config) {
-      var found = root.findDrawerEntry(config.bar.layout)
-      if (!found || !Array.isArray(found.entry.items)) return
-      if (from >= found.entry.items.length) return
-      var moved = found.entry.items.splice(from, 1)[0]
-      found.entry.items.splice(to > from ? to - 1 : to, 0, moved)
-    })
+    mutate(function(config) { Layout.reorder(config, root.moduleName, from, to) })
+  }
+
+  // Both jobs in one write: config refreshes only after a write.
+  function reconcile(gone, stranded) {
+    mutate(function(config) { Layout.reconcile(config, root.moduleName, gone, stranded) })
+  }
+
+  readonly property bool configWriter: {
+    var peers = bar && typeof bar.moduleWidgets === "function" ? bar.moduleWidgets(moduleName) : []
+    return peers.length === 0 || peers[0] === root
+  }
+
+  // A reload rebuilds the registries in steps. Wait before pruning.
+  readonly property int settleDelay: 1500
+  property real missingSince: 0
+
+  onMissingIdsChanged: {
+    missingSince = missingIds.length === 0 ? 0 : (missingSince || Date.now())
+    reconcileTimer.restart()
+  }
+  onStrandedIdsChanged: if (strandedIds.length > 0) reconcileTimer.restart()
+  Component.onCompleted: if (missingIds.length > 0 || strandedIds.length > 0) reconcileTimer.restart()
+
+  Timer {
+    id: reconcileTimer
+    interval: 250
+    onTriggered: {
+      if (!root.configWriter) return
+      var waiting = root.missingSince > 0
+      var ripe = waiting && Date.now() - root.missingSince >= root.settleDelay
+      var gone = ripe ? root.missingIds : []
+      if (gone.length > 0 || root.strandedIds.length > 0)
+        root.reconcile(gone, root.strandedIds)
+      if (waiting && !ripe) restart()
+    }
   }
 
 
@@ -737,18 +732,29 @@ BarWidget {
       }
       return copy
     }
+    // "command" for an `exec` entry, "qml" for a `source` one, "" for a plugin.
+    readonly property string customType: root.customTypeOf(cell.entry)
+    readonly property bool custom: customType !== ""
+
     // Reading `widgetRegistry` is what makes this re-evaluate when a plugin is
     // enabled, disabled, or reloaded from disk.
     readonly property var childComponent: {
+      if (cell.customType === "command") return commandModule
+      if (cell.customType === "qml") return null
       var widgets = root.widgetRegistry
       var registered = widgets && widgets[cell.childId] ? widgets[cell.childId] : null
       return registered ? registered.component : null
     }
-    readonly property var childItem: childLoader.item
+    readonly property var childItem: cell.customType === "qml" ? qmlLoader.item : childLoader.item
     readonly property bool dragSource: root.draggingIndex === cell.index
 
-    implicitWidth: childItem ? (root.vertical ? root.barSize : childItem.implicitWidth) : Style.bar.iconSlot
-    implicitHeight: childItem ? childItem.implicitHeight : Style.bar.iconSlot
+    // Uninstalled: take up no room while the removal is written out.
+    readonly property bool uninstalled: !cell.custom && root.missingIds.indexOf(cell.childId) !== -1
+
+    implicitWidth: uninstalled ? 0
+      : (childItem ? (root.vertical ? root.barSize : childItem.implicitWidth) : Style.bar.iconSlot)
+    implicitHeight: uninstalled ? 0
+      : (childItem ? childItem.implicitHeight : Style.bar.iconSlot)
     width: implicitWidth
     height: implicitHeight
 
@@ -770,6 +776,7 @@ BarWidget {
       var target = childItem
       if (!target) return
       if ("bar" in target) target.bar = cell.host
+      if ("entry" in target) target.entry = cell.plainEntry
       if ("moduleName" in target) target.moduleName = cell.childId
       if ("settings" in target) target.settings = cell.childSettings
     }
@@ -781,8 +788,22 @@ BarWidget {
     onChildOpenChanged: root.noteChildOpen(!childOpen, childOpen)
 
     Loader {
+      id: qmlLoader
+      anchors.fill: parent
+      active: cell.customType === "qml"
+      source: cell.customType === "qml" ? root.customSourceOf(cell.entry) : ""
+      visible: root.revealProgress > 0.01
+      opacity: cell.dragSource ? (root.draggingOutside ? 0.12 : 0.3) : 1.0
+      onLoaded: {
+        cell.inject()
+        Qt.callLater(cell.inject)
+      }
+    }
+
+    Loader {
       id: childLoader
       anchors.fill: parent
+      active: cell.customType !== "qml"
       sourceComponent: cell.childComponent
       // Every WidgetButton here registers in `bar.clickTargets`, which
       // Bar.moduleClickTargetAt scans across windows with no idea the strip is shut.
@@ -797,10 +818,11 @@ BarWidget {
       Behavior on opacity { NumberAnimation { duration: 90 } }
     }
 
-    // Marks a child whose plugin is gone or disabled.
+    // Marks a child whose plugin is disabled.
     Text {
       anchors.centerIn: parent
-      visible: cell.childComponent === null && root.revealProgress > 0.01
+      visible: !cell.custom && cell.childComponent === null && !cell.uninstalled
+        && root.revealProgress > 0.01
       text: ""
       font.family: cell.host ? cell.host.fontFamily : Style.font.family
       font.pixelSize: Style.font.body
@@ -819,9 +841,9 @@ BarWidget {
       readonly property string region: root.region
       readonly property string moduleName: cell.childId
       readonly property var moduleSettings: cell.childSettings
-      readonly property string customType: ""
-      readonly property bool qmlCustom: false
-      readonly property bool commandCustom: false
+      readonly property string customType: cell.customType
+      readonly property bool qmlCustom: cell.customType === "qml"
+      readonly property bool commandCustom: cell.customType === "command"
       readonly property bool registered: true
       readonly property var registryComponent: cell.childComponent
       readonly property var activeItem: cell.childItem
@@ -875,6 +897,67 @@ BarWidget {
 
       Behavior on opacity {
         NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+      }
+    }
+
+    // The bar's own exec module is private to Bar.qml, so a drawer that hosts
+    // one has to carry its own. Same settings, same waybar-style JSON output.
+    Component {
+      id: commandModule
+
+      WidgetButton {
+        id: command
+
+        property var entry: null
+        readonly property var moduleSettings: Util.isPlainObject(entry) ? entry : ({})
+        property string outputText: ""
+        property string outputTooltip: ""
+        property bool outputActive: false
+
+        function setting(name, fallback) {
+          var value = moduleSettings[name]
+          return value === undefined || value === null ? fallback : value
+        }
+
+        function update(raw) {
+          var data = Util.parseModuleJson(raw)
+          var klass = data.class || data.alt || ""
+          outputText = data.text || String(raw || "").trim()
+          outputTooltip = data.tooltip || String(setting("tooltip", ""))
+          outputActive = klass === "active" || (Array.isArray(klass) && klass.indexOf("active") !== -1)
+        }
+
+        text: outputText || String(setting("text", ""))
+        tooltipText: outputTooltip || String(setting("tooltip", ""))
+        active: outputActive
+        keepSpace: setting("keepSpace", false) === true
+        horizontalMargin: Number(setting("horizontalMargin", 7.5))
+        verticalPadding: Number(setting("verticalPadding", 6))
+        fontSize: Number(setting("fontSize", 12))
+
+        onPressed: function(button) {
+          var script = button === Qt.RightButton ? String(setting("onRightClick", ""))
+            : button === Qt.MiddleButton ? String(setting("onMiddleClick", ""))
+            : String(setting("onClick", ""))
+          if (script) Util.execDetached(script)
+        }
+
+        Process {
+          id: commandProcess
+          command: ["bash", "-lc", String(command.setting("exec", ""))]
+          stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: command.update(text)
+          }
+        }
+
+        Timer {
+          interval: Math.max(1, Number(command.setting("interval", 5))) * 1000
+          running: String(command.setting("exec", "")) !== ""
+          repeat: true
+          triggeredOnStart: true
+          onTriggered: if (!commandProcess.running) commandProcess.running = true
+        }
       }
     }
 
