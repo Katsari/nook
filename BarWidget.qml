@@ -43,22 +43,11 @@ BarWidget {
 
   readonly property var shellConfig: bar && bar.shell ? bar.shell.shellConfig : null
 
-  // A transparent bar picks its foreground to contrast with the wallpaper under
-  // the bar, and over a light one that is the theme's own background colour.
-  // Painting the card with the same colour would draw every hosted widget
-  // invisible, so the card takes the other theme colour instead.
-  readonly property color cardBackground: {
-    if (!bar) return Color.background
-    if (!bar.useTransparentForeground) return bar.background
-    var picked = bar.barForeground
-    var card = bar.background
-    var apart = Math.abs(relativeLuminance(picked) - relativeLuminance(card))
-    return apart < 0.15 ? bar.themeForeground : card
-  }
-
-  function relativeLuminance(c) {
-    return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
-  }
+  // A transparent bar picks barForeground to contrast with the wallpaper, not
+  // with this card, so the card stays on the theme and hosted widgets are
+  // repainted to match it.
+  readonly property color cardBackground: bar ? bar.background : Color.background
+  readonly property color hostedForeground: bar ? bar.themeForeground : Color.foreground
 
   // The bar owns the rules for what counts as a custom module, so ask it.
   function customTypeOf(entry) {
@@ -798,6 +787,29 @@ BarWidget {
       if ("settings" in target) target.settings = cell.childSettings
     }
 
+    // Ui/WidgetButton and the icons it loads take their colour from
+    // bar.barForeground. Rebind that to the colour the card is painted
+    // against, and only where it is still the bar's colour, so a widget that
+    // chose its own is left alone. Qt.binding, not a value, so it still
+    // follows the theme. A readonly property cannot be rebound and keeps the
+    // bar's colour.
+    function paintForTheCard(item) {
+      if (!item || !root.bar) return
+      // Only when the bar has moved off the theme colour. Rebinding replaces
+      // the widget's own binding, so leave every widget alone when there is
+      // nothing to correct.
+      if (Qt.colorEqual(root.bar.barForeground, root.hostedForeground)) return
+      if ("foreground" in item) {
+        try {
+          if (Qt.colorEqual(item.foreground, root.bar.barForeground))
+            item.foreground = Qt.binding(function() { return root.hostedForeground })
+        } catch (e) {
+        }
+      }
+      var kids = item.children
+      for (var i = 0; i < kids.length; i++) cell.paintForTheCard(kids[i])
+    }
+
     onChildSettingsChanged: inject()
     onHostChanged: inject()
 
@@ -814,6 +826,7 @@ BarWidget {
       onLoaded: {
         cell.inject()
         Qt.callLater(cell.inject)
+        Qt.callLater(function() { cell.paintForTheCard(cell.childItem) })
       }
     }
 
@@ -822,6 +835,10 @@ BarWidget {
       anchors.fill: parent
       active: cell.customType !== "qml"
       sourceComponent: cell.childComponent
+      // An icon loaded from a Component does not exist until the strip is
+      // drawn, so catch it on the way in as well.
+      onVisibleChanged: if (visible) Qt.callLater(function() { cell.paintForTheCard(cell.childItem) })
+
       // Every WidgetButton here registers in `bar.clickTargets`, which
       // Bar.moduleClickTargetAt scans across windows with no idea the strip is shut.
       // It skips targets whose `visible` is false.
@@ -830,6 +847,7 @@ BarWidget {
       onLoaded: {
         cell.inject()
         Qt.callLater(cell.inject)
+        Qt.callLater(function() { cell.paintForTheCard(cell.childItem) })
       }
 
       Behavior on opacity { NumberAnimation { duration: 90 } }

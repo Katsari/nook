@@ -45,6 +45,15 @@ ShellRoot {
     return items.map(function(item) { return typeof item === "string" ? item : item.id })
   }
 
+  // A widget whose colour is its own and happens to match the bar's right now.
+  function makeProbe(flat) {
+    var probe = Qt.createQmlObject('import QtQuick; Item { property bool up: false; '
+      + 'property color flat; property color foreground: up ? "#00ff00" : flat }',
+      root, "probe")
+    probe.flat = flat === undefined ? mockBar.barForeground : flat
+    return probe
+  }
+
   function pluginEntry(id) {
     var plugins = mockShell.shellConfig.plugins || []
     for (var i = 0; i < plugins.length; i++) {
@@ -189,19 +198,44 @@ ShellRoot {
         return fail("stranded settings not spotted: " + widget.strandedIds)
 
       // A transparent bar over a light wallpaper picks the theme background as
-      // its foreground. The card must not use that same colour, or every
-      // hosted widget is drawn invisible.
-      if (String(widget.cardBackground) !== String(mockBar.background))
-        return fail("opaque bar should keep the theme card: " + widget.cardBackground)
+      // its foreground. The card keeps the theme, and hosted widgets are
+      // repainted against it.
+      if (!Qt.colorEqual(widget.cardBackground, mockBar.background))
+        return fail("card left the theme: " + widget.cardBackground)
+      if (!Qt.colorEqual(widget.hostedForeground, mockBar.themeForeground))
+        return fail("hosted foreground is not the theme colour")
+
       mockBar.barForeground = mockBar.themeContrastForeground
       mockBar.useTransparentForeground = true
-      if (String(widget.cardBackground) === String(mockBar.background))
-        return fail("card kept the colour the widgets are drawn in")
-      if (String(widget.cardBackground) !== String(mockBar.themeForeground))
-        return fail("card did not fall back to the theme foreground: " + widget.cardBackground)
+      if (!Qt.colorEqual(widget.cardBackground, mockBar.background))
+        return fail("a transparent bar must not move the card")
+      if (Qt.colorEqual(widget.hostedForeground, widget.cardBackground))
+        return fail("hosted widgets would be drawn in the card's colour")
+
+      // The repaint replaces a widget's own binding, so it must run only when
+      // the bar has left the theme colour. A frozen probe still reports the
+      // right colour, so watch the binding rather than the value.
+      var probe = makeProbe()
+      widget.cells[0].paintForTheCard(probe)
+      probe.up = true
+      if (Qt.colorEqual(probe.foreground, "#00ff00"))
+        return fail("a widget on the bar's colour was left adaptive")
+      // Repainted with a binding, not a value, so a theme change still lands.
+      mockBar.themeForeground = "#123456"
+      if (!Qt.colorEqual(probe.foreground, "#123456"))
+        return fail("a repainted widget stopped following the theme")
+      mockBar.themeForeground = "#fff4d8"
+      probe.destroy()
+
       mockBar.barForeground = mockBar.themeForeground
-      if (String(widget.cardBackground) !== String(mockBar.background))
-        return fail("a light foreground should keep the theme card")
+      probe = makeProbe(mockBar.themeForeground)
+      widget.cells[0].paintForTheCard(probe)
+      probe.up = true
+      if (!Qt.colorEqual(probe.foreground, "#00ff00"))
+        return fail("repaint ran while the bar was already on the theme colour")
+      probe.destroy()
+
+      mockBar.barForeground = mockBar.themeForeground
       mockBar.useTransparentForeground = false
       next()
     } else if (stage === 1) {
