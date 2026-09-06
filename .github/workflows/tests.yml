@@ -22,19 +22,23 @@ jobs:
           sudo apt-get install -y --no-install-recommends qt6-declarative-dev-tools
 
       # tests/all.sh skips its lint part without the omarchy source, so this
-      # replaces it. The exit code is no use: without qs.Commons every host
-      # property is an unqualified-access warning, and qmllint 6.4 fails the
-      # run over those while 6.9 does not. A parse error is the only thing
-      # worth failing on. Linting a clean file first proves the tool ran, so a
-      # broken invocation cannot pass as an empty log.
+      # replaces it. The exit code is no use: the runner has qmllint but not
+      # the QtQuick modules, so every import warns and 6.4 fails the run over
+      # that while 6.9 does not. A parse error is the only thing worth failing
+      # on, and linting a deliberately broken file first proves the check can
+      # still see one.
       - name: Check QML syntax
         run: |
           QMLLINT=$(command -v qmllint || echo /usr/lib/qt6/bin/qmllint)
-          printf 'import QtQuick\nItem { property int n: 1 }\n' > /tmp/sanity.qml
-          "$QMLLINT" /tmp/sanity.qml
+          syntax_errors() { grep -qiE 'syntax error|\[syntax\]' "$1"; }
+
+          printf 'import QtQuick\nItem { BROKEN {{{\n' > /tmp/broken.qml
+          "$QMLLINT" /tmp/broken.qml > broken.log 2>&1 || true
+          syntax_errors broken.log || { cat broken.log; echo "qmllint missed a known parse error"; exit 1; }
+
           "$QMLLINT" BarWidget.qml > lint.log 2>&1 || true
           cat lint.log
-          ! grep -qiE 'syntax error|\[syntax\]' lint.log
+          ! syntax_errors lint.log
 
       - name: Run tests
         run: tests/all.sh
