@@ -16,29 +16,26 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install qmllint
+      - name: Install Qt QML tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends qt6-declarative-dev-tools
 
-      # tests/all.sh skips its lint part without the omarchy source, so this
-      # replaces it. The exit code is no use: the runner has qmllint but not
-      # the QtQuick modules, so every import warns and 6.4 fails the run over
-      # that while 6.9 does not. A parse error is the only thing worth failing
-      # on, and linting a deliberately broken file first proves the check can
-      # still see one.
+      # tests/all.sh skips its qmllint part without the omarchy source, so this
+      # replaces it. qmlformat parses the file and ignores imports, which is
+      # the whole check that is meaningful here: the runner has no qs.Commons
+      # to resolve against, and qmllint's warnings and exit codes differ across
+      # Qt versions. Formatting a broken file first proves the check still
+      # fails when it should.
       - name: Check QML syntax
         run: |
-          QMLLINT=$(command -v qmllint || echo /usr/lib/qt6/bin/qmllint)
-          syntax_errors() { grep -qiE 'syntax error|\[syntax\]' "$1"; }
-
+          QMLFORMAT=$(command -v qmlformat || echo /usr/lib/qt6/bin/qmlformat)
           printf 'import QtQuick\nItem { BROKEN {{{\n' > /tmp/broken.qml
-          "$QMLLINT" /tmp/broken.qml > broken.log 2>&1 || true
-          syntax_errors broken.log || { cat broken.log; echo "qmllint missed a known parse error"; exit 1; }
-
-          "$QMLLINT" BarWidget.qml > lint.log 2>&1 || true
-          cat lint.log
-          ! syntax_errors lint.log
+          if "$QMLFORMAT" /tmp/broken.qml > /dev/null 2>&1; then
+            echo "qmlformat accepted a file with a parse error"
+            exit 1
+          fi
+          "$QMLFORMAT" BarWidget.qml > /dev/null
 
       - name: Run tests
         run: tests/all.sh
