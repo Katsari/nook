@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install qmllint
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qt6-declarative-dev-tools
+
+      # tests/all.sh skips its lint part without the omarchy source, so this
+      # replaces it. No pipe: the exit code is the result.
+      - name: Check QML syntax
+        run: |
+          QMLLINT=$(command -v qmllint || echo /usr/lib/qt6/bin/qmllint)
+          "$QMLLINT" --compiler disable BarWidget.qml
+
+      - name: Run tests
+        run: tests/all.sh

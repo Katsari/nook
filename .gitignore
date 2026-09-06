@@ -1,0 +1,3 @@
+tests/tools/vptr/vptr
+tests/tools/vptr/*-protocol.c
+tests/tools/vptr/*-client-protocol.h
