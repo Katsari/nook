@@ -10,11 +10,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install qmllint
         run: |
@@ -22,11 +22,19 @@ jobs:
           sudo apt-get install -y --no-install-recommends qt6-declarative-dev-tools
 
       # tests/all.sh skips its lint part without the omarchy source, so this
-      # replaces it. No pipe: the exit code is the result.
+      # replaces it. The exit code is no use: without qs.Commons every host
+      # property is an unqualified-access warning, and qmllint 6.4 fails the
+      # run over those while 6.9 does not. A parse error is the only thing
+      # worth failing on. Linting a clean file first proves the tool ran, so a
+      # broken invocation cannot pass as an empty log.
       - name: Check QML syntax
         run: |
           QMLLINT=$(command -v qmllint || echo /usr/lib/qt6/bin/qmllint)
-          "$QMLLINT" --compiler disable BarWidget.qml
+          printf 'import QtQuick\nItem { property int n: 1 }\n' > /tmp/sanity.qml
+          "$QMLLINT" /tmp/sanity.qml
+          "$QMLLINT" BarWidget.qml > lint.log 2>&1 || true
+          cat lint.log
+          ! grep -qiE 'syntax error|\[syntax\]' lint.log
 
       - name: Run tests
         run: tests/all.sh
