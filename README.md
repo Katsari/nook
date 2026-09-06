@@ -1,10 +1,11 @@
 # Nook
 
 A bar drawer for Omarchy, for when too many plugins have cluttered your bar.
-Collapse the ones you rarely touch into a tray that slides out below the bar,
-leaving one chevron behind. Drag widgets in and out.
+Collapse the ones you rarely touch into a tray that opens below the bar rather
+than along it, so nothing on the bar gets covered or moved. Drag widgets in and
+out.
 
-![Nook open, with eight widgets in the tray](preview.png)
+![Nook open, with several widgets in the tray](preview.png)
 
 ## Install
 
@@ -27,13 +28,17 @@ Every move rewrites `~/.config/omarchy/shell.json`.
 
 Settings live on Nook's `bar.layout` entry in `~/.config/omarchy/shell.json`.
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `items` | `[]` | The widgets inside, as layout entries |
-| `trigger` | `"hover"` | `"hover"` opens on pointer-over; anything else means click-only |
-| `duration` | `180` | Reveal animation, in milliseconds |
+| Key        | Default   | Meaning                                                         |
+| ---------- | --------- | --------------------------------------------------------------- |
+| `items`    | `[]`      | The widgets inside, as layout entries                           |
+| `trigger`  | `"hover"` | `"hover"` opens on pointer-over; anything else means click-only |
+| `duration` | `180`     | Reveal animation, in milliseconds                               |
 
 The tray's layer surface is named `nook`, for Hyprland layer rules.
+
+Custom modules work too. An entry with `exec` runs its command on an interval
+and shows the output, the same as on the bar; one with `source` loads that QML
+file. Neither is a plugin, so neither needs a `plugins[]` entry.
 
 Each item takes the same shape as a bar layout entry, so per-widget settings go
 on the item:
@@ -69,6 +74,34 @@ before the move, so `reorder 0 3` puts the first widget third.
 Read `status` when a gesture misbehaves: it separates a wrong state from a
 pointer that never arrived.
 
+## Tests
+
+```sh
+tests/all.sh
+```
+
+GitHub Actions runs the node tests and the source checks on every push. The
+lint and harness legs need the omarchy shell source and a Wayland session, so
+they skip themselves there and only run locally.
+
+`tests/layoutmodel.test.js` runs every shell.json edit in `LayoutModel.js`
+under node. `tests/qml.test.sh` lints `BarWidget.qml`, checks that the QML and
+the library agree, and loads the real widget in a throwaway quickshell
+instance against a mock bar to drive absorb, reorder, eject, and both
+reconcile paths end to end.
+
+`tests/drag.test.py` drives the real pointer, so it is opt-in:
+
+```sh
+tests/all.sh --drag
+```
+
+It drags a widget off the bar into the drawer, hovers the chevron and checks
+the widget is actually drawn below the bar, then drags it back out. It takes
+over the mouse for about twenty seconds. Build the pointer once with
+`tests/tools/vptr/build.sh`. `shell.json` is snapshotted first and restored at
+the end, pass or fail.
+
 ## Remove
 
 ```sh
@@ -81,14 +114,22 @@ each one.
 
 ## Known limits
 
-Built for Omarchy 4.0.1. Beyond the widget contract every plugin uses, Nook
+Built for Omarchy 4.0.2. Beyond the widget contract every plugin uses, Nook
 reaches into the bar's widget registry, its slot and click-target bookkeeping,
 and its drag state. No plugin API covers those, so an update can break it.
 
-- **One Nook per bar.** A second one's writes would land in the first.
-- **Bottom and right bars can misroute a bar click.** The bar matches clicks
-  against every widget's own geometry without checking which window it is in,
-  and on those two edges the tray overlaps the bar's coordinate range. The
-  chevron is covered; other bar widgets are not.
-- **Tab between panels and the bar settings UI** both read `bar.layout`, so
-  neither sees the widgets inside the tray.
+- **One Nook per bar.** The manifest sets `allowMultiple` false, so the bar
+  will not add a second. A hand-written one would still load, and both would
+  write to the first entry they find.
+- **Bottom and right bars can misroute a bar click.** `Bar.moduleClickTargetAt`
+  maps a click into every registered target's geometry without checking which
+  window the target is in, and on those two edges the tray overlaps the bar's
+  coordinate range. The chevron is covered; other bar widgets are not.
+- **The bar's own tooling does not see inside the tray.** `omarchy bar set`,
+  `omarchy bar move` and `omarchy-shell shell listPlugins` all read
+  `bar.layout`, so a hosted widget reads as absent, and `listPlugins` reports
+  it disabled. Eject it to configure it from the command line.
+- **Panel numbers skip hosted widgets.** `omarchy-shell shell togglePanelAt`
+  counts the panels visible in a bar section, so the tray's contents are not
+  in the count. Toggling a panel by id works: `omarchy-shell shell summon
+<id>` opens the tray and its panel with it.

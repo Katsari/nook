@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "io.github.katsari.nook",
   "name": "Nook",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Katsari",
-  "description": "A drawer for a cluttered bar. Collapses the widgets you rarely touch into a tray that slides out below the bar, leaving one chevron. Drag widgets in and out.",
+  "description": "A bar drawer for when too many plugins have cluttered your bar. Collapse the ones you rarely touch into a tray that opens below the bar rather than along it, so nothing on the bar gets covered or moved. Drag widgets in and out.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "Nook",
-    "description": "A drawer for a cluttered bar. Collapses the widgets you rarely touch into a tray that slides out below the bar, leaving one chevron. Drag widgets in and out.",
+    "description": "A bar drawer for when too many plugins have cluttered your bar. Collapse the ones you rarely touch into a tray that opens below the bar rather than along it, so nothing on the bar gets covered or moved. Drag widgets in and out.",
     "category": "Layout",
     "allowMultiple": false,
     "defaultSection": "right",
