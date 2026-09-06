@@ -41,6 +41,20 @@ function normalizeEntries(raw, moduleName) {
   return out
 }
 
+// Where each hostable entry sits in the raw items array. normalizeEntries drops
+// an entry with no id and the drawer itself, so a position taken from the strip
+// counts past them and cannot index items directly.
+function hostableIndexes(items, moduleName) {
+  var out = []
+  if (!Array.isArray(items)) return out
+  for (var i = 0; i < items.length; i++) {
+    var id = entryIdOf(items[i])
+    if (!id || id === moduleName) continue
+    out.push(i)
+  }
+  return out
+}
+
 // Two drawers share this id and the first match wins, hence allowMultiple false.
 function findDrawerEntry(layout, moduleName) {
   if (!isPlainObject(layout)) return null
@@ -112,7 +126,8 @@ function absorb(config, moduleName, id, index, plugin) {
   var moved = takeFromLayout(config.bar.layout, id)
   if (!moved) return false
   if (!Array.isArray(found.entry.items)) found.entry.items = []
-  var at = index >= 0 && index <= found.entry.items.length ? index : found.entry.items.length
+  var slots = hostableIndexes(found.entry.items, moduleName)
+  var at = index >= 0 && index < slots.length ? slots[index] : found.entry.items.length
   found.entry.items.splice(at, 0, moved)
   if (plugin !== false) markEnabled(config, id)
   return true
@@ -136,9 +151,13 @@ function reorder(config, moduleName, from, to) {
   if (from < 0 || to < 0 || from === to || from === to - 1) return false
   var found = findDrawerEntry(config.bar.layout, moduleName)
   if (!found || !Array.isArray(found.entry.items)) return false
-  if (from >= found.entry.items.length) return false
-  var moved = found.entry.items.splice(from, 1)[0]
-  found.entry.items.splice(to > from ? to - 1 : to, 0, moved)
+  var items = found.entry.items
+  var slots = hostableIndexes(items, moduleName)
+  if (from >= slots.length || to > slots.length) return false
+  var rawFrom = slots[from]
+  var rawTo = to < slots.length ? slots[to] : items.length
+  var moved = items.splice(rawFrom, 1)[0]
+  items.splice(rawTo > rawFrom ? rawTo - 1 : rawTo, 0, moved)
   return true
 }
 

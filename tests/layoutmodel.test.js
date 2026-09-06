@@ -350,4 +350,49 @@ const makeConfig = () => ({
   same(Layout.missingIds(entries, installed, { "built.in": {} }, NOOK, false), ["gone.plugin"])
 }
 
+// index skew: normalizeEntries drops an entry with no id and the drawer itself,
+// so a position taken from the strip counts past them
+{
+  const skewed = () => {
+    const config = makeConfig()
+    // What the strip draws: a, b, c. What items holds: five entries.
+    config.bar.layout.right[1].items = [
+      { format: "x" },          // no id, never drawn
+      { id: "a" },
+      { id: NOOK },             // the drawer itself, never drawn
+      { id: "b" },
+      { id: "c" },
+    ]
+    return config
+  }
+  const items = config => config.bar.layout.right[1].items
+  const drawn = config =>
+    Layout.normalizeEntries(items(config), NOOK).map(e => e.id).join(",")
+
+  let config = skewed()
+  assert.equal(drawn(config), "a,b,c", "the strip draws three of the five entries")
+
+  assert.equal(Layout.reorder(config, NOOK, 0, 3), true)
+  assert.equal(drawn(config), "b,c,a", "moving the first to the end moves 'a', not an undrawn entry")
+  assert.equal(items(config).length, 5, "no entry is lost")
+
+  config = skewed()
+  assert.equal(Layout.reorder(config, NOOK, 2, 0), true)
+  assert.equal(drawn(config), "c,a,b", "moving the last to the front moves 'c'")
+
+  config = skewed()
+  assert.equal(Layout.reorder(config, NOOK, 3, 0), false, "past the last drawn entry")
+  assert.equal(drawn(config), "a,b,c")
+
+  config = skewed()
+  config.bar.layout.right.push({ id: "w.new" })
+  assert.equal(Layout.absorb(config, NOOK, "w.new", 1), true)
+  assert.equal(drawn(config), "a,w.new,b,c", "an absorbed widget lands where the caret was")
+
+  config = skewed()
+  config.bar.layout.right.push({ id: "w.new" })
+  assert.equal(Layout.absorb(config, NOOK, "w.new", 3), true)
+  assert.equal(drawn(config), "a,b,c,w.new", "a caret past the last entry appends")
+}
+
 console.log("layoutmodel.test.js: all assertions passed")

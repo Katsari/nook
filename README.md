@@ -68,8 +68,9 @@ omarchy-shell io.github.katsari.nook reorder <from> <to>
 omarchy-shell io.github.katsari.nook status            # what it thinks it is doing
 ```
 
-`reorder` takes positions in `items`. `to` is an insertion index measured
-before the move, so `reorder 0 3` puts the first widget third.
+`reorder` takes positions among the widgets the tray draws, counting from
+zero. `to` is an insertion index measured before the move, so `reorder 0 3`
+puts the first widget third.
 
 Read `status` when a gesture misbehaves: it separates a wrong state from a
 pointer that never arrived.
