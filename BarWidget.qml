@@ -43,6 +43,23 @@ BarWidget {
 
   readonly property var shellConfig: bar && bar.shell ? bar.shell.shellConfig : null
 
+  // A transparent bar picks its foreground to contrast with the wallpaper under
+  // the bar, and over a light one that is the theme's own background colour.
+  // Painting the card with the same colour would draw every hosted widget
+  // invisible, so the card takes the other theme colour instead.
+  readonly property color cardBackground: {
+    if (!bar) return Color.background
+    if (!bar.useTransparentForeground) return bar.background
+    var picked = bar.barForeground
+    var card = bar.background
+    var apart = Math.abs(relativeLuminance(picked) - relativeLuminance(card))
+    return apart < 0.15 ? bar.themeForeground : card
+  }
+
+  function relativeLuminance(c) {
+    return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+  }
+
   // The bar owns the rules for what counts as a custom module, so ask it.
   function customTypeOf(entry) {
     if (!bar || typeof bar.customModuleType !== "function") return ""
@@ -595,7 +612,7 @@ BarWidget {
 
       BorderSurface {
         anchors.fill: parent
-        color: root.bar ? root.bar.background : Color.background
+        color: root.cardBackground
         borderSpec: Border.localOrSurfaceSpec("popups", "border", Color.popups.border,
           Color.popups.border, Math.max(1, Style.space(2)))
         radius: Style.cornerRadius
@@ -684,7 +701,7 @@ BarWidget {
               ? root.scrollOffset > 0.5
               : root.scrollOffset < root.maxScroll - 0.5
             readonly property real thickness: Style.space(14)
-            readonly property color cardBackground: root.bar ? root.bar.background : Color.background
+            readonly property color cardBackground: root.cardBackground
 
             visible: opacity > 0
             opacity: root.overflowing && moreThisWay ? 1 : 0

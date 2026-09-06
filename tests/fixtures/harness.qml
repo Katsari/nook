@@ -116,9 +116,12 @@ ShellRoot {
     property bool vertical: false
     property int barSize: 36
     property string fontFamily: "sans-serif"
-    property color background: "#000000"
+    property color background: "#292025"
     property color foreground: "#ffffff"
     property color barForeground: "#ffffff"
+    property color themeForeground: "#fff4d8"
+    property color themeContrastForeground: "#292025"
+    property bool useTransparentForeground: false
     property color urgent: "#ff5555"
     property bool foregroundAnimationEnabled: false
     property var moduleSlots: []
@@ -184,6 +187,22 @@ ShellRoot {
       if (widget.missingIds.length !== 0) return fail("clean config flagged an uninstall")
       if (widget.strandedIds.join() !== "w.bar")
         return fail("stranded settings not spotted: " + widget.strandedIds)
+
+      // A transparent bar over a light wallpaper picks the theme background as
+      // its foreground. The card must not use that same colour, or every
+      // hosted widget is drawn invisible.
+      if (String(widget.cardBackground) !== String(mockBar.background))
+        return fail("opaque bar should keep the theme card: " + widget.cardBackground)
+      mockBar.barForeground = mockBar.themeContrastForeground
+      mockBar.useTransparentForeground = true
+      if (String(widget.cardBackground) === String(mockBar.background))
+        return fail("card kept the colour the widgets are drawn in")
+      if (String(widget.cardBackground) !== String(mockBar.themeForeground))
+        return fail("card did not fall back to the theme foreground: " + widget.cardBackground)
+      mockBar.barForeground = mockBar.themeForeground
+      if (String(widget.cardBackground) !== String(mockBar.background))
+        return fail("a light foreground should keep the theme card")
+      mockBar.useTransparentForeground = false
       next()
     } else if (stage === 1) {
       // The reconcile timer fires 250ms after strandedIds changes.
