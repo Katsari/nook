@@ -362,11 +362,24 @@ BarWidget {
     draggingOutside = false
   }
 
+  // The card's edge is flush against the bar, so testing the card's rectangle
+  // turned a reorder that drifted a pixel up into an eject. Ejecting means
+  // putting the widget back on the bar, so only a deliberate move onto the bar
+  // counts. Overshooting the ends is still a reorder: insertionIndexAt clamps.
+  readonly property real ejectMargin: Style.space(10)
+
+  function draggedOntoBar(scenePoint) {
+    var across = vertical ? scenePoint.x : scenePoint.y
+    var start = vertical ? cardArea.x : cardArea.y
+    var end = start + (vertical ? cardArea.width : cardArea.height)
+    return barPosition === "top" || barPosition === "left"
+      ? across < start - ejectMargin
+      : across > end + ejectMargin
+  }
+
   function updateChildDrag(scenePoint) {
-    var inside = scenePoint.x >= cardArea.x && scenePoint.x <= cardArea.x + cardArea.width
-      && scenePoint.y >= cardArea.y && scenePoint.y <= cardArea.y + cardArea.height
-    draggingOutside = !inside
-    caretIndex = inside ? insertionIndexAt(vertical ? scenePoint.y : scenePoint.x) : -1
+    draggingOutside = draggedOntoBar(scenePoint)
+    caretIndex = draggingOutside ? -1 : insertionIndexAt(vertical ? scenePoint.y : scenePoint.x)
   }
 
   function endChildDrag() {

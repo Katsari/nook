@@ -192,13 +192,15 @@ def main():
         # 2. hovering really opens the drawer and the widget really gets drawn.
         # itemVisible is false while the strip is shut: the cell's loader hides
         # its child so the bar does not route clicks into a closed drawer.
-        assert not geometry()[SOURCE]["itemVisible"], "the widget is drawn while the drawer is shut"
         # Absorbing shortens the section the widget came from, so every slot
         # after it shifts. Ask again rather than reusing the opening reading.
         chevron = center(geometry()[NOOK])
-        # Away first: the drop left the pointer on the chevron, and hovering a
-        # spot it already occupies produces no new enter event.
+        # Away first: the drop left the pointer on the chevron, which holds the
+        # drawer open, and hovering a spot it already occupies produces no new
+        # enter event either.
         mouse.move((chevron[0], chevron[1] + 300), dwell=400)
+        wait_for(lambda: not geometry()[SOURCE]["itemVisible"],
+                 f"the drawer to shut and stop drawing {SOURCE}")
         mouse.move(chevron, dwell=900)
         wait_for(
             lambda: geometry()[SOURCE]["itemVisible"],
@@ -211,10 +213,22 @@ def main():
         print(f"ok: hover opened the drawer, {SOURCE} drawn at "
               f"{hosted['x']},{hosted['y']} {hosted['itemWidth']}x{hosted['itemHeight']}")
 
-        # 3. drawer -> bar
+        # 3. reorder inside the drawer, drifting up onto the bar's edge on the
+        # way. Only a deliberate move onto the bar means eject.
+        before = hosted_ids()
+        neighbour = geometry()[before[0]] if before[0] != SOURCE else geometry()[before[1]]
+        drift = (item_center(neighbour)[0], slots[NOOK]["y"] + slots[NOOK]["height"] - 2)
+        mouse.glide(chevron, item_center(hosted))
+        mouse.drag(item_center(hosted), drift)
+        assert SOURCE in hosted_ids(), f"a drifting reorder ejected {SOURCE}"
+        assert hosted_ids() != before, f"{SOURCE} did not move: {hosted_ids()}"
+        print(f"ok: reordered {SOURCE} without ejecting it, {before} -> {hosted_ids()}")
+
+        # 4. drawer -> bar
         bar_now = geometry()
         target = center(bar_now["omarchy.clock"]) if "omarchy.clock" in bar_now else (source[0], 12)
-        mouse.glide(chevron, item_center(hosted))
+        hosted = geometry()[SOURCE]
+        mouse.glide(drift, item_center(hosted))
         mouse.drag(item_center(hosted), target)
         wait_for(lambda: SOURCE not in hosted_ids(), f"{SOURCE} to leave Nook's items")
         assert on_bar(SOURCE), f"{SOURCE} left items but is not in the bar layout"
