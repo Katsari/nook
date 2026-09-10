@@ -115,9 +115,12 @@ each one.
 
 ## Known limits
 
-Built for Omarchy 4.0.2. Beyond the widget contract every plugin uses, Nook
-reaches into the bar's widget registry, its slot and click-target bookkeeping,
-and its drag state. No plugin API covers those, so an update can break it.
+Built for Omarchy 4.0.3. Beyond the widget contract every plugin uses, Nook
+reaches into the bar's widget registry, its slot and click-target
+bookkeeping, and its drag state. No plugin API covers those. 4.0.3 stopped
+handing third-party widgets the real bar, so Nook now adopts it from a
+first-party widget on the same bar; on a bar without any first-party widget
+it sits inert. A future update can break it again.
 
 - **One Nook per bar.** The manifest sets `allowMultiple` false, so the bar
   will not add a second. A hand-written one would still load, and both would
