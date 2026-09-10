@@ -13,6 +13,16 @@ out.
 omarchy plugin add https://github.com/Katsari/nook.git --enable
 ```
 
+## Update
+
+```sh
+omarchy plugin update io.github.katsari.nook
+omarchy restart shell
+```
+
+The restart is needed because a rescan does not replace a plugin's
+already-compiled code. The same applies after editing Nook's code by hand.
+
 ## Usage
 
 Hover the chevron to open the tray. Click it to pin the tray open, and click
