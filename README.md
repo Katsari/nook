@@ -103,6 +103,20 @@ over the mouse for about twenty seconds. Build the pointer once with
 `tests/tools/vptr/build.sh`. `shell.json` is snapshotted first and restored at
 the end, pass or fail.
 
+## Troubleshooting
+
+Changing Nook's code needs a shell restart, not a rescan. The shell logs
+"Local plugin changed, reloading", but a plugin whose entry-point URL is
+unchanged keeps its already-compiled component: neither the local-plugin
+watcher nor `omarchy-shell shell rescanPlugins` swaps in the new one. The
+old Nook therefore stays loaded, which on Omarchy 4.0.3 shows up as a `?` on
+every hosted widget. After `omarchy plugin update io.github.katsari.nook`, or
+after editing the drawer by hand, run:
+
+```sh
+omarchy restart shell
+```
+
 ## Remove
 
 ```sh
