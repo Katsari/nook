@@ -28,6 +28,50 @@ BarWidget {
   readonly property int animationDuration: settings && settings.duration !== undefined
     ? Math.max(0, Number(settings.duration)) : 180
 
+  // Omarchy 4.0.3 injects a PluginBarApi facade with no widget registry, drag
+  // state, or config writes. A first-party sibling still holds the real bar,
+  // so take it from there. The host reassigns the facade on any settings or
+  // registry change, hence onBarChanged.
+  readonly property bool facadeBar: bar !== null && bar !== undefined
+    && !("barWidgetRegistry" in bar)
+
+  function findHostBar(item) {
+    if (!item) return null
+    // typeof first: `in` throws on a truthy non-object `bar` property.
+    if ("bar" in item && item.bar && typeof item.bar === "object"
+        && "barWidgetRegistry" in item.bar) return item.bar
+    var kids = item.children
+    for (var i = 0; i < kids.length; i++) {
+      var found = findHostBar(kids[i])
+      if (found) return found
+    }
+    return null
+  }
+
+  function adoptHostBar() {
+    if (!facadeBar) return
+    var found = findHostBar(barWindow ? barWindow.contentItem : null)
+    if (found) bar = found
+  }
+
+  onBarChanged: {
+    adoptAttempts = 0
+    Qt.callLater(adoptHostBar)
+  }
+
+  // Covers siblings that load later; bounded so an all-facade bar is not
+  // scanned forever.
+  property int adoptAttempts: 0
+  Timer {
+    interval: 250
+    repeat: true
+    running: root.facadeBar && root.adoptAttempts < 40
+    onTriggered: {
+      root.adoptAttempts += 1
+      root.adoptHostBar()
+    }
+  }
+
   readonly property var widgetRegistry: bar && bar.barWidgetRegistry ? bar.barWidgetRegistry.widgets : ({})
   readonly property var pluginRegistry: bar && bar.shell ? bar.shell.pluginRegistry : null
 
@@ -47,7 +91,8 @@ BarWidget {
   // with this card, so the card stays on the theme and hosted widgets are
   // repainted to match it.
   readonly property color cardBackground: bar ? bar.background : Color.background
-  readonly property color hostedForeground: bar ? bar.themeForeground : Color.foreground
+  readonly property color hostedForeground: bar && bar.themeForeground !== undefined
+    ? bar.themeForeground : Color.foreground
 
   // The bar owns the rules for what counts as a custom module, so ask it.
   function customTypeOf(entry) {
@@ -263,10 +308,11 @@ BarWidget {
   // Bar.qml commits its own reorder and knows nothing about drawers, so a drop
   // here would only park the entry beside the chevron.
 
-  readonly property bool dragActive: bar && bar.barDragSource !== null
+  readonly property bool dragActive: bar && "barDragSource" in bar
+    && bar.barDragSource !== null
     && bar.barDragSource !== ownSlot && !draggingChild
   // Without this both monitors' drawers would light up.
-  readonly property bool dragInThisWindow: dragActive && bar.barDragWindow
+  readonly property bool dragInThisWindow: dragActive && !!bar.barDragWindow
     && barWindow === bar.barDragWindow
   readonly property point dragPoint: dragInThisWindow
     ? root.mapFromItem(null, bar.barDragSceneX, bar.barDragSceneY) : Qt.point(-1, -1)
@@ -320,7 +366,7 @@ BarWidget {
   }
 
   Connections {
-    target: root.bar
+    target: root.bar && "barDragSource" in root.bar ? root.bar : null
 
     // Null the bar's target so its release is a no-op. ModuleSlot.onReleased reads
     // it into a local before clearBarDrag(), and the bar's write is synchronous:
@@ -366,7 +412,9 @@ BarWidget {
   // turned a reorder that drifted a pixel up into an eject. Ejecting means
   // putting the widget back on the bar, so only a deliberate move onto the bar
   // counts. Overshooting the ends is still a reorder: insertionIndexAt clamps.
-  readonly property real ejectMargin: Style.space(10)
+  // Style.space scales independently of barSize and can outgrow a slim bar,
+  // leaving no eject band.
+  readonly property real ejectMargin: Math.min(Style.space(10), barSize / 2)
 
   function draggedOntoBar(scenePoint) {
     var across = vertical ? scenePoint.x : scenePoint.y
