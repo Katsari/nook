@@ -1,11 +1,11 @@
 import QtQuick
 import Quickshell
 
-// Loads the real BarWidget.qml against a mock bar and shell and drives the two
-// reconcile timers: the stranded-settings reclaim and the uninstalled-plugin
-// prune. Both write through mutate(), so this covers the whole path from a
-// binding to a config write. The layout edits themselves are covered by
-// layoutmodel.test.js, and absorb and eject by drag.test.py.
+// Loads the real BarWidget.qml against mock bars: a facade with no sibling to
+// adopt from, facade adoption, then theming, stranded-settings reclaim, and
+// uninstalled-plugin prune against the real mock bar. The layout edits
+// themselves are covered by layoutmodel.test.js, absorb and eject by
+// drag.test.py.
 // The mock mutateShellConfig mirrors the host: deep clone, mutate, reassign,
 // then reinject the drawer's settings.
 ShellRoot {
@@ -14,6 +14,7 @@ ShellRoot {
   readonly property string nookId: "io.github.katsari.nook"
   readonly property string sourceDir: Quickshell.env("NOOK_SOURCE_DIR")
 
+  property var component: null
   property var widget: null
   property int stage: 0
   property int ticksInStage: 0
@@ -60,6 +61,15 @@ ShellRoot {
       if (plugins[i] && plugins[i].id === id) return plugins[i]
     }
     return null
+  }
+
+  function makeWidget(host, barObject) {
+    var made = component.createObject(host, {
+      bar: barObject,
+      moduleName: root.nookId,
+    })
+    if (!made) fail("create: " + component.errorString())
+    return made
   }
 
   QtObject {
@@ -147,30 +157,79 @@ ShellRoot {
     function hideTooltip(_target) {}
   }
 
-  Item { id: host }
+  QtObject {
+    id: facadeShell
+    property int writes: 0
+    function mutateShellConfig(_mutator) { writes += 1; return false }
+  }
+
+  // The surface Omarchy 4.0.3's PluginBarApi exposes: presentation state and
+  // scoped operations, no registry, no drag state, no themeForeground.
+  QtObject {
+    id: mockFacade
+    property var shell: facadeShell
+    property string position: "top"
+    property bool vertical: false
+    property int barSize: 36
+    property string fontFamily: "sans-serif"
+    property color background: "#292025"
+    property color foreground: "#ffffff"
+    property color barForeground: "#ffffff"
+    property color urgent: "#ff5555"
+    property bool transparent: false
+    property bool foregroundAnimationEnabled: false
+    property var layoutConfig: ({})
+    property var clickTargets: []
+    function moduleWidgets(_name) { return [] }
+    function registerClickTarget(_target) {}
+    function unregisterClickTarget(_target) {}
+    function showTooltip(_target, _text) {}
+    function hideTooltip(_target) {}
+    function run(_command) {}
+  }
+
+  // adoptHostBar scans QsWindow.window.contentItem, so the widget under test
+  // needs a real window around it.
+  PanelWindow {
+    id: bareWindow
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    implicitWidth: 1
+    implicitHeight: 1
+    anchors { top: true; left: true }
+    mask: Region {}
+
+    Item { id: bareHost }
+  }
+
+  PanelWindow {
+    id: siblingWindow
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    implicitWidth: 1
+    implicitHeight: 1
+    anchors { top: true; left: true }
+    mask: Region {}
+
+    Item { id: siblingHost }
+    // Stands in for a first-party widget: those keep the real bar.
+    Item { property var bar: mockBar }
+  }
 
   Timer {
     interval: 1
     running: true
     onTriggered: {
-      var component = Qt.createComponent(
+      root.component = Qt.createComponent(
         encodeURI("file://" + root.sourceDir + "/BarWidget.qml"),
         Component.PreferSynchronous)
-      if (component.status !== Component.Ready) {
-        console.error("NOOK_TEST_FAIL load: " + component.errorString())
+      if (root.component.status !== Component.Ready) {
+        console.error("NOOK_TEST_FAIL load: " + root.component.errorString())
         Qt.quit()
         return
       }
-      root.widget = component.createObject(host, {
-        bar: mockBar,
-        moduleName: root.nookId,
-      })
-      if (!root.widget) {
-        console.error("NOOK_TEST_FAIL create: " + component.errorString())
-        Qt.quit()
-        return
-      }
-      mockShell.syncSettings()
+      root.widget = root.makeWidget(bareHost, mockFacade)
+      if (!root.widget) return
       console.log("NOOK_LOAD_OK")
       ticker.start()
     }
@@ -190,6 +249,33 @@ ShellRoot {
     if (ticksInStage > 100) { fail("timed out"); return }
 
     if (stage === 0) {
+      // Ten ticks cover two retry-timer firings with no sibling to find.
+      if (!widget.facadeBar) return fail("adopted a bar that is not there")
+      if (widget.missingIds.length !== 0)
+        return fail("flagged uninstalls while blinded: " + widget.missingIds)
+      if (widget.strandedIds.length !== 0)
+        return fail("flagged stranded settings while blinded")
+      if (widget.dragActive) return fail("dragActive with no drag state")
+      if (facadeShell.writes !== 0) return fail("wrote config through the facade")
+      if (!Qt.colorEqual(widget.cardBackground, mockFacade.background))
+        return fail("card colour lost on the facade: " + widget.cardBackground)
+      if (widget.hostedForeground.a === 0)
+        return fail("hosted foreground unset on the facade")
+      if (ticksInStage < 10) return
+      widget.destroy()
+      widget = null
+      next()
+    } else if (stage === 1) {
+      if (widget === null) {
+        widget = makeWidget(siblingHost, mockFacade)
+        return
+      }
+      if (widget.facadeBar) return
+      if (widget.bar !== mockBar) return fail("adopted the wrong object")
+      if (facadeShell.writes !== 0) return fail("wrote config through the facade")
+      mockShell.syncSettings()
+      next()
+    } else if (stage === 2) {
       if (widget.entries.length !== 2 || widget.entries[0].id !== "w.hosted")
         return fail("initial entries: " + JSON.stringify(widget.entries))
       if (widget.trigger !== "click") return fail("trigger setting not injected")
@@ -238,7 +324,7 @@ ShellRoot {
       mockBar.barForeground = mockBar.themeForeground
       mockBar.useTransparentForeground = false
       next()
-    } else if (stage === 1) {
+    } else if (stage === 3) {
       // The reconcile timer fires 250ms after strandedIds changes.
       var item = drawerEntry().items[1]
       var marker = pluginEntry("w.bar")
@@ -250,7 +336,7 @@ ShellRoot {
       delete remaining["w.bar"]
       mockRegistry.installedPlugins = remaining
       next()
-    } else if (stage === 2) {
+    } else if (stage === 4) {
       if (ticksInStage === 1 && widget.missingIds.join() !== "w.bar")
         return fail("uninstall not flagged: " + widget.missingIds)
       // While the removal waits to be written, the dead cell must not draw.

@@ -38,8 +38,17 @@ def screen():
 
 
 def geometry():
-    slots = json.loads(sh("omarchy-shell", "shell", "debugBarGeometry"))
-    return {s["id"]: s for s in slots}
+    # debugBarGeometry can fail while a layout write rebuilds the bar. The
+    # budget stays under wait_for's timeouts.
+    deadline = time.time() + 3
+    while True:
+        try:
+            slots = json.loads(sh("omarchy-shell", "shell", "debugBarGeometry"))
+            return {s["id"]: s for s in slots}
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            if time.time() > deadline:
+                raise
+            time.sleep(0.3)
 
 
 def center(slot):
@@ -180,7 +189,9 @@ def main():
 
         # 1. bar -> drawer
         mouse.drag(source, chevron)
-        if SOURCE not in hosted_ids():
+        try:
+            wait_for(lambda: SOURCE in hosted_ids(), "the absorb to be written", 2.0)
+        except AssertionError:
             # A drag that never crossed the threshold leaves no trace, so this
             # is a retry, not a second assertion.
             fresh = geometry()
@@ -216,19 +227,29 @@ def main():
         # 3. reorder inside the drawer, drifting up onto the bar's edge on the
         # way. Only a deliberate move onto the bar means eject.
         before = hosted_ids()
-        neighbour = geometry()[before[0]] if before[0] != SOURCE else geometry()[before[1]]
-        drift = (item_center(neighbour)[0], slots[NOOK]["y"] + slots[NOOK]["height"] - 2)
-        mouse.glide(chevron, item_center(hosted))
-        mouse.drag(item_center(hosted), drift)
-        assert SOURCE in hosted_ids(), f"a drifting reorder ejected {SOURCE}"
-        assert hosted_ids() != before, f"{SOURCE} did not move: {hosted_ids()}"
-        print(f"ok: reordered {SOURCE} without ejecting it, {before} -> {hosted_ids()}")
+        if len(before) < 2:
+            print("drag.test.py: single hosted item, skipping the reorder step")
+        else:
+            neighbour = geometry()[before[0]] if before[0] != SOURCE else geometry()[before[1]]
+            # The near edge, not the midpoint: a drop on an even-width cell's
+            # midpoint resolves the caret to the dragged item's own slot.
+            drift = (neighbour["x"] + 2, slots[NOOK]["y"] + slots[NOOK]["height"] - 2)
+            mouse.glide(chevron, item_center(hosted))
+            mouse.drag(item_center(hosted), drift)
+            wait_for(lambda: hosted_ids() != before, f"{SOURCE} to move in the drawer")
+            assert SOURCE in hosted_ids(), f"a drifting reorder ejected {SOURCE}"
+            print(f"ok: reordered {SOURCE} without ejecting it, {before} -> {hosted_ids()}")
 
-        # 4. drawer -> bar
+        # 4. drawer -> bar. The reorder left the pointer off the chevron and
+        # the drawer may have shut, so reopen it first.
         bar_now = geometry()
         target = center(bar_now["omarchy.clock"]) if "omarchy.clock" in bar_now else (source[0], 12)
+        chevron = center(bar_now[NOOK])
+        mouse.move(chevron, dwell=900)
+        wait_for(lambda: geometry()[SOURCE]["itemVisible"],
+                 f"{SOURCE} to be drawn before the eject")
         hosted = geometry()[SOURCE]
-        mouse.glide(drift, item_center(hosted))
+        mouse.glide(chevron, item_center(hosted))
         mouse.drag(item_center(hosted), target)
         wait_for(lambda: SOURCE not in hosted_ids(), f"{SOURCE} to leave Nook's items")
         assert on_bar(SOURCE), f"{SOURCE} left items but is not in the bar layout"

@@ -1,3 +1,14 @@
+# Python
+__pycache__/
+
+# vptr build outputs (tests/tools/vptr/build.sh)
 tests/tools/vptr/vptr
 tests/tools/vptr/*-protocol.c
 tests/tools/vptr/*-client-protocol.h
+
+# Editors
+.vscode/
+.idea/
+
+# Node, if test tooling ever pulls packages
+node_modules/
